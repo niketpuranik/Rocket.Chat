@@ -57,6 +57,72 @@ Api.addRoute 'rooms/:id/send', authRequired: true,
 			Meteor.call('sendMessage', {msg: this.bodyParams.msg, rid: @urlParams.id} )
 		status: 'success'	#need to handle error
 
+# validate room params
+Api.testapiValidateRoom =  (room) ->
+	if room.name?
+		try
+			nameValidation = new RegExp '^' + RocketChat.settings.get('UTF8_Names_Validation') + '$', 'i'
+		catch
+			nameValidation = new RegExp '^[0-9a-zA-Z-_.]+$', 'i'
+
+		if nameValidation.test room.name
+			return
+	throw new Meteor.Error 'invalid-room-record', "[restapi] createRoom -> record is invalid"
+	return
+
+Api.addRoute 'createRoom', authRequired: true,
+	post: ->
+		console.log @bodyParams
+		console.log @bodyParams.name
+		console.log @bodyParams.members
+		try
+			Api.testapiValidateRoom @bodyParams
+			id = ""
+			Meteor.runAsUser this.userId, () =>
+				id= Meteor.call('createChannel', @bodyParams.name, @bodyParams.members)
+			status: 'success', id: id   # need to handle error
+		catch e
+			statusCode: 400    # bad request or other errors
+			body: status: 'fail', message: e.name + ' :: ' + e.message
+
+# validate user params
+Api.testapiValidateUser =  (user) ->
+	if user.name?
+		if user.email?
+			if user.pass?
+				try
+					nameValidation = new RegExp '^' + RocketChat.settings.get('UTF8_Names_Validation') + '$', 'i'
+				catch
+					nameValidation = new RegExp '^[0-9a-zA-Z-_.]+$', 'i'
+
+				if nameValidation.test user.username
+					if  /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]+\b/i.test user.email
+						return
+		throw new Meteor.Error 'invalid-user-record', "[restapi] register -> record is invalid"
+	return
+
+Api.addRoute 'register', authRequired: true,
+	post: ->
+		if RocketChat.authz.hasPermission(@userId, 'bulk-register-user')
+			try
+				Api.testapiValidateUser @bodyParams
+				id = ""
+				console.log @bodyParams
+				id = Meteor.call 'registerUser', @bodyParams
+				console.log id
+				Meteor.runAsUser id, (user) =>
+					Meteor.call 'setUsername', @bodyParams.username
+					Meteor.call 'joinDefaultChannels'
+					console.log user
+					console.log Meteor.user()
+				status: 'success', id: id
+			catch e
+				statusCode: 400    # bad request or other errors
+				body: status: 'fail', message: e.name + ' :: ' + e.message
+		else
+			console.log "[restapi] register -> User does not have 'bulk-register-user' permission"
+			statusCode: 403
+			body: status: 'error', message: 'You do not have permission to do this'
 
 # validate an array of users
 Api.testapiValidateUsers =  (users) ->
